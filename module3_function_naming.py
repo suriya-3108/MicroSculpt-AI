@@ -79,6 +79,8 @@ def render_module3():
                 prompt = f"""
                 Analyze the following {language} function names and suggest better, more descriptive names.
                 
+                CRITICAL: Each suggested name MUST be unique. Do not suggest the same name for different functions.
+                
                 Current Functions: {func_names}
                 
                 Code Context (first 2000 chars):
@@ -160,6 +162,15 @@ def render_module3():
 
             # Logic OUTSIDE the form
             if submitted:
+                # Validate uniqueness
+                new_names = list(current_renames.values())
+                duplicates = [name for name in set(new_names) if new_names.count(name) > 1]
+                
+                if duplicates:
+                    st.error(f"❌ Cannot apply: Duplicate names found: {', '.join(duplicates)}")
+                    st.warning("Please ensure all function names are unique before applying.")
+                    return
+                
                 # Update code
                 new_code = update_code_with_names(code, current_renames)
                 st.session_state.current_code = new_code
