@@ -61,6 +61,10 @@ class {service_name}:
                 
                 # Re-indent and replace old function names with new ones
                 import re
+                
+                # Build set of functions in this service for self-prefix detection
+                service_functions = set(functions)
+                
                 for line in lines:
                     # Replace old function names with new renamed versions
                     modified_line = line
@@ -68,6 +72,14 @@ class {service_name}:
                         # Match function calls: old_name( but not in strings
                         pattern = r'\b' + re.escape(old_name) + r'\('
                         replacement = new_name + '('
+                        modified_line = re.sub(pattern, replacement, modified_line)
+                    
+                    # Add self. prefix for same-service method calls
+                    for func_name in service_functions:
+                        # Match: func_name( but NOT self.func_name( or module.func_name(
+                        # This regex ensures we don't add self. if it's already there or if it's a module call
+                        pattern = r'(?<!self\.)(?<!\.)(?<!def\s)\b' + re.escape(func_name) + r'\('
+                        replacement = f'self.{func_name}('
                         modified_line = re.sub(pattern, replacement, modified_line)
                     
                     indented_body += "        " + modified_line + "\n"
