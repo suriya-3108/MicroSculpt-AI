@@ -8,6 +8,7 @@ config.py
 *.key
 *.pem
 secrets/
+ENV_MIGRATION_SUMMARY.md
 
 # Python
 __pycache__/
