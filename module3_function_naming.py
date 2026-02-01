@@ -34,6 +34,24 @@ def render_module3():
     if st.session_state.get('renaming_done', False):
         st.success("✅ Function names have been updated!")
         
+        # Show before/after summary
+        if 'function_renames' in st.session_state and st.session_state.function_renames:
+            st.subheader("📝 Function Name Changes")
+            
+            # Create a nice table
+            import pandas as pd
+            rename_data = []
+            for old_name, new_name in st.session_state.function_renames.items():
+                rename_data.append({
+                    "Before": old_name,
+                    "After": new_name,
+                    "Change": f"{old_name} → {new_name}"
+                })
+            
+            if rename_data:
+                df = pd.DataFrame(rename_data)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+        
         with st.expander("📄 View Updated Code"):
             st.code(st.session_state.current_code, language=language)
             
@@ -47,6 +65,7 @@ def render_module3():
             st.session_state.current_module = 4
             st.rerun()
         return
+
 
     st.markdown("AI will analyze your functions and suggest more meaningful business-logic names.")
     
