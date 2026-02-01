@@ -31,6 +31,19 @@ class {service_name}:
             # Retrieve original code
             original_body = func_map.get(func_name, "")
             
+            # Extract parameters from original function signature
+            params = "self"
+            if original_body:
+                lines = original_body.split('\n')
+                if lines and lines[0].strip().startswith("def "):
+                    # Extract params: def func_name(param1, param2):
+                    import re
+                    match = re.search(r'def\s+\w+\((.*?)\)', lines[0])
+                    if match:
+                        original_params = match.group(1).strip()
+                        if original_params:
+                            params = f"self, {original_params}"
+            
             # Indent logic (4 spaces)
             indented_body = ""
             if original_body:
@@ -45,7 +58,7 @@ class {service_name}:
             else:
                 indented_body = f"        # TODO: Implement business logic for {func_name}\n        return \"{func_name} executed\""
 
-            code += f"""    def {func_name}(self, *args, **kwargs):
+            code += f"""    def {func_name}({params}):
 {indented_body or '        pass'}
 
 """
@@ -139,6 +152,8 @@ def render_module6():
             
             # Generate code for each service
             for svc_name, funcs in services.items():
+                # Remove duplicate functions (preserves order)
+                funcs = list(dict.fromkeys(funcs))
                 # Convert CamelCase to snake_case
                 # e.g. PaymentService -> payment_service
                 import re
@@ -181,8 +196,18 @@ def render_module6():
             compose = "version: '3.8'\nservices:\n"
             port = 5001
             for svc_name in services:
-                clean_name = svc_name.lower().replace(" ", "_")
-                compose += f"  {clean_name}:\n    build: ./{clean_name}_service\n    ports:\n      - \"{port}:5000\"\n"
+                # Use same snake_case conversion as folder creation
+                import re
+                s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', svc_name)
+                clean_name = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+                
+                # Ensure it ends with _service but not _service_service
+                if not clean_name.endswith("_service"):
+                    folder_name = f"{clean_name}_service"
+                else:
+                    folder_name = clean_name
+                
+                compose += f"  {clean_name}:\n    build: ./{folder_name}\n    ports:\n      - \"{port}:5000\"\n"
                 port += 1
             
             zipf.writestr("docker-compose.yml", compose)
