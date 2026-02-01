@@ -169,8 +169,20 @@ def render_module3():
                 
                 # Update functions data
                 for f in st.session_state.functions_data:
+                    # Update function name
                     if f['name'] in current_renames:
                         f['name'] = current_renames[f['name']]
+                    
+                    # Update calls array to use new names
+                    if 'calls' in f:
+                        updated_calls = []
+                        for called_func in f['calls']:
+                            # If this called function was renamed, use new name
+                            if called_func in current_renames:
+                                updated_calls.append(current_renames[called_func])
+                            else:
+                                updated_calls.append(called_func)
+                        f['calls'] = updated_calls
                         
                 st.success("Function names updated successfully!")
                 st.session_state.renaming_done = True
