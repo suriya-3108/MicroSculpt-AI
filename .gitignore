@@ -4,11 +4,13 @@
 
 # API Keys and Secrets
 .env
-config.py
 *.key
 *.pem
 secrets/
 ENV_MIGRATION_SUMMARY.md
+
+# Generated Output (can be regenerated)
+output/
 
 # Python
 __pycache__/
