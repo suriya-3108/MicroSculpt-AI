@@ -75,11 +75,11 @@ class {service_name}:
                         modified_line = re.sub(pattern, replacement, modified_line)
                     
                     # Add self. prefix for same-service method calls
-                    for func_name in service_functions:
-                        # Match: func_name( but NOT self.func_name( or module.func_name(
+                    for service_func in service_functions:
+                        # Match: service_func( but NOT self.service_func( or module.service_func(
                         # This regex ensures we don't add self. if it's already there or if it's a module call
-                        pattern = r'(?<!self\.)(?<!\.)(?<!def\s)\b' + re.escape(func_name) + r'\('
-                        replacement = f'self.{func_name}('
+                        pattern = r'(?<!self\.)(?<!\.)(?<!def\s)\b' + re.escape(service_func) + r'\('
+                        replacement = f'self.{service_func}('
                         modified_line = re.sub(pattern, replacement, modified_line)
                     
                     indented_body += "        " + modified_line + "\n"
