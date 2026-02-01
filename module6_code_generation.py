@@ -22,10 +22,17 @@ class {service_name}:
     def health_check(self):
         return {{"status": "healthy", "service": "{service_name}"}}
 
+
 """
         # Create lookup map for function bodies
         all_funcs = st.session_state.functions_data
         func_map = {f['name']: f.get('body', '# Body not found') for f in all_funcs}
+        
+        # Create mapping of old names to new names (if functions were renamed)
+        old_to_new_names = {}
+        if 'function_renames' in st.session_state:
+            for old_name, new_name in st.session_state.function_renames.items():
+                old_to_new_names[old_name] = new_name
         
         for func_name in functions:
             # Retrieve original code
@@ -44,7 +51,7 @@ class {service_name}:
                         if original_params:
                             params = f"self, {original_params}"
             
-            # Indent logic (4 spaces)
+            # Indent logic (4 spaces) and replace old function names
             indented_body = ""
             if original_body:
                 lines = original_body.split('\n')
@@ -52,11 +59,21 @@ class {service_name}:
                 if lines[0].strip().startswith("def "):
                     lines = lines[1:]
                 
-                # Re-indent
+                # Re-indent and replace old function names with new ones
+                import re
                 for line in lines:
-                    indented_body += "        " + line + "\n"
+                    # Replace old function names with new renamed versions
+                    modified_line = line
+                    for old_name, new_name in old_to_new_names.items():
+                        # Match function calls: old_name( but not in strings
+                        pattern = r'\b' + re.escape(old_name) + r'\('
+                        replacement = new_name + '('
+                        modified_line = re.sub(pattern, replacement, modified_line)
+                    
+                    indented_body += "        " + modified_line + "\n"
             else:
                 indented_body = f"        # TODO: Implement business logic for {func_name}\n        return \"{func_name} executed\""
+
 
             code += f"""    def {func_name}({params}):
 {indented_body or '        pass'}

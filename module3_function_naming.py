@@ -145,6 +145,9 @@ def render_module3():
                 new_code = update_code_with_names(code, current_renames)
                 st.session_state.current_code = new_code
                 
+                # Store rename mapping for code generator
+                st.session_state.function_renames = current_renames
+                
                 # Update functions data
                 for f in st.session_state.functions_data:
                     if f['name'] in current_renames:
