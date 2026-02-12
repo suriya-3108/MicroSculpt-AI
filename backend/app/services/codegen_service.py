@@ -1,17 +1,11 @@
-# ============================================
-# FILE: module6_code_generation.py
-# PURPOSE: Module 6 - Multi-Language Code Gen
-# ============================================
-
-import streamlit as st
-import os
 import zipfile
 import io
+import re
 from datetime import datetime
 
 class CodeGenerator:
     @staticmethod
-    def generate_python_flask(service_name, functions):
+    def generate_python_flask(service_name, functions, all_funcs, renames_map):
         code = f"""from flask import Flask, jsonify, request
 from flask_cors import CORS
 
@@ -25,14 +19,10 @@ class {service_name}:
 
 """
         # Create lookup map for function bodies
-        all_funcs = st.session_state.functions_data
         func_map = {f['name']: f.get('body', '# Body not found') for f in all_funcs}
         
         # Create mapping of old names to new names (if functions were renamed)
-        old_to_new_names = {}
-        if 'function_renames' in st.session_state:
-            for old_name, new_name in st.session_state.function_renames.items():
-                old_to_new_names[old_name] = new_name
+        old_to_new_names = renames_map or {}
         
         for func_name in functions:
             # Retrieve original code
@@ -43,8 +33,6 @@ class {service_name}:
             if original_body:
                 lines = original_body.split('\n')
                 if lines and lines[0].strip().startswith("def "):
-                    # Extract params: def func_name(param1, param2):
-                    import re
                     match = re.search(r'def\s+\w+\((.*?)\)', lines[0])
                     if match:
                         original_params = match.group(1).strip()
@@ -60,9 +48,6 @@ class {service_name}:
                     lines = lines[1:]
                 
                 # Re-indent and replace old function names with new ones
-                import re
-                
-                # Build set of functions in this service for self-prefix detection
                 service_functions = set(functions)
                 
                 for line in lines:
@@ -76,8 +61,7 @@ class {service_name}:
                     
                     # Add self. prefix for same-service method calls
                     for service_func in service_functions:
-                        # Match: service_func( but NOT self.service_func( or module.service_func(
-                        # This regex ensures we don't add self. if it's already there or if it's a module call
+                         # Match: service_func( but NOT self.service_func( or module.service_func(
                         pattern = r'(?<!self\.)(?<!\.)(?<!def\s)\b' + re.escape(service_func) + r'\('
                         replacement = f'self.{service_func}('
                         modified_line = re.sub(pattern, replacement, modified_line)
@@ -93,9 +77,7 @@ class {service_name}:
 """
         code += f"""
 service = {service_name}()
-"""
-        # Rest of the File logic
-        code += f"""
+
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify(service.health_check())
@@ -107,8 +89,17 @@ def api_{func}():
     data = request.json
     # Pass data as kwargs or however the original function expects it
     # Simplified mapping:
-    result = service.{func}(**data) if isinstance(data, dict) else service.{func}(data)
-    return jsonify({{"result": result}})
+    try:
+        if isinstance(data, dict):
+             result = service.{func}(**data)
+        else:
+             result = service.{func}(data)
+        return jsonify({{"result": result}})
+    except TypeError:
+        # Fallback if args don't match
+        return jsonify({{"result": service.{func}()}})
+    except Exception as e:
+        return jsonify({{"error": str(e)}}), 500
 
 """
         code += """
@@ -150,8 +141,12 @@ app.get('/health', (req, res) => {{
         for func in functions:
             code += f"""
 app.post('/{func}', (req, res) => {{
-    const result = service.{func}(req.body);
-    res.json({{ result }});
+    try {{
+        const result = service.{func}(req.body);
+        res.json({{ result }});
+    }} catch (e) {{
+        res.status(500).json({{ error: e.message }});
+    }}
 }});
 """
         code += """
@@ -161,20 +156,9 @@ app.listen(PORT, () => {
 """
         return code
 
-def render_module6():
-    st.header("6️⃣ Microservice Generation")
-    
-    if 'services' not in st.session_state:
-        st.warning("Please group services first.")
-        return
-        
-    services = st.session_state.services
-    language = st.session_state.current_language
-    
-    st.success(f"Ready to generate code for **{language.upper()}** project!")
-    
-    if st.button("🚀 Generate Code Package", type="primary"):
-        # Create ZIP in memory
+class CodegenService:
+    @staticmethod
+    def generate_code_package(services, language, functions_data, renames_map, source_filename):
         zip_buffer = io.BytesIO()
         
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
@@ -183,9 +167,8 @@ def render_module6():
             for svc_name, funcs in services.items():
                 # Remove duplicate functions (preserves order)
                 funcs = list(dict.fromkeys(funcs))
-                # Convert CamelCase to snake_case
-                # e.g. PaymentService -> payment_service
-                import re
+                
+                # Convert CamelCase to snake_case for folder
                 s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', svc_name)
                 clean_name = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
                 
@@ -198,7 +181,7 @@ def render_module6():
                 # Language specific generation
                 if language == 'python':
                     # Main App
-                    code = CodeGenerator.generate_python_flask(svc_name, funcs)
+                    code = CodeGenerator.generate_python_flask(svc_name, funcs, functions_data, renames_map)
                     zipf.writestr(f"{folder}/app.py", code)
                     
                     # Dockerfile
@@ -226,11 +209,9 @@ def render_module6():
             port = 5001
             for svc_name in services:
                 # Use same snake_case conversion as folder creation
-                import re
                 s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', svc_name)
                 clean_name = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
                 
-                # Ensure it ends with _service but not _service_service
                 if not clean_name.endswith("_service"):
                     folder_name = f"{clean_name}_service"
                 else:
@@ -244,7 +225,7 @@ def render_module6():
             # Readme
             readme = f"""# Generated Microservices
             
-Project: {st.session_state.filename}
+Project: {source_filename}
 Language: {language}
 Generated: {datetime.now()}
 
@@ -256,13 +237,4 @@ Generated: {datetime.now()}
             zipf.writestr("README.md", readme)
 
         zip_buffer.seek(0)
-        
-        # Download Button
-        st.download_button(
-            label="📥 Download Microservices (.zip)",
-            data=zip_buffer,
-            file_name=f"microservices_{language}_{datetime.now().strftime('%Y%m%d')}.zip",
-            mime="application/zip"
-        )
-        
-        st.balloons()
+        return zip_buffer

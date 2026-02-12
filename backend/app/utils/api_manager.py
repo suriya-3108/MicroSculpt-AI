@@ -1,17 +1,23 @@
-# ============================================
-# FILE: api_manager.py
-# PURPOSE: Central API client with intelligent fallback
-# ============================================
-
 import os
 import requests
-from config import GEMINI_API_KEY, GROQ_API_KEY, HF_API_KEY, GEMINI_MODEL, GROQ_MODEL, HF_MODEL
+from flask import current_app
+# Use safe imports that work both in Flask context and standalone if config is in path
+try:
+    from config import GEMINI_API_KEY, GROQ_API_KEY, HF_API_KEY, GEMINI_MODEL, GROQ_MODEL, HF_MODEL
+except ImportError:
+    # Fallback or rely on current_app
+    pass
 
 class APIManager:
     def __init__(self):
         self.primary_available = True
         self.secondary_available = True
         self.tertiary_available = True
+
+    def _get_config(self, key, default=None):
+        if current_app:
+            return current_app.config.get(key, default)
+        return os.environ.get(key, default)
 
     def generate_content(self, prompt, temperature=0.7):
         """
@@ -52,7 +58,10 @@ class APIManager:
 
     def _call_gemini(self, prompt, temperature):
         """Call Google Gemini API using REST endpoint"""
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+        key = self._get_config('GEMINI_API_KEY')
+        model = self._get_config('GEMINI_MODEL', "gemini-1.5-flash")
+        
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
         
         headers = {"Content-Type": "application/json"}
         data = {
@@ -79,14 +88,17 @@ class APIManager:
 
     def _call_groq(self, prompt, temperature):
         """Call Groq API"""
+        key = self._get_config('GROQ_API_KEY')
+        model = self._get_config('GROQ_MODEL', "llama-3.3-70b-versatile")
+        
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Authorization": f"Bearer {key}",
             "Content-Type": "application/json"
         }
         data = {
             "messages": [{"role": "user", "content": prompt}],
-            "model": GROQ_MODEL,
+            "model": model,
             "temperature": temperature,
             "max_tokens": 2048
         }
@@ -99,8 +111,11 @@ class APIManager:
 
     def _call_huggingface(self, prompt, temperature):
         """Call Hugging Face Inference API"""
-        url = f"https://router.huggingface.co/models/{HF_MODEL}"
-        headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+        key = self._get_config('HF_API_KEY')
+        model = self._get_config('HF_MODEL', "bigcode/starcoder")
+        
+        url = f"https://router.huggingface.co/models/{model}"
+        headers = {"Authorization": f"Bearer {key}"}
         data = {
             "inputs": prompt,
             "parameters": {

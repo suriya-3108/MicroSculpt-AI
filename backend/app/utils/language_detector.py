@@ -1,8 +1,3 @@
-# ============================================
-# FILE: language_detector.py
-# PURPOSE: Detect programming language of input code
-# ============================================
-
 import os
 import re
 from config import SUPPORTED_LANGUAGES
