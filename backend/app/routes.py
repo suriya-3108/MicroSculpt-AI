@@ -96,11 +96,12 @@ def generate_code():
     functions_data = data.get('functions', []) # With bodies
     renames = data.get('renames', {})
     filename = data.get('filename', 'project')
+    source_code = data.get('source_code', '')  # Original source for import extraction
     
     if not services:
         return jsonify({'error': 'No services data provided'}), 400
         
-    zip_buffer = CodegenService.generate_code_package(services, language, functions_data, renames, filename)
+    zip_buffer = CodegenService.generate_code_package(services, language, functions_data, renames, filename, source_code)
     
     return send_file(
         zip_buffer,

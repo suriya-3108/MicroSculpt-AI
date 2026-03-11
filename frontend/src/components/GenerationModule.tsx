@@ -22,7 +22,8 @@ export function GenerationModule({ projectData }: GenerationModuleProps) {
                     language: language,
                     functions: projectData.functions,
                     renames: projectData.renames,
-                    filename: projectData.filename
+                    filename: projectData.filename,
+                    source_code: projectData.code  // Pass original code for import extraction
                 }),
             });
 

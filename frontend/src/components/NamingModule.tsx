@@ -73,7 +73,8 @@ export function NamingModule({ onNext, projectData, setProjectData }: NamingModu
 
         const updatedFunctions = projectData.functions.map((f: any) => ({
             ...f,
-            name: accepted[f.name] || f.name
+            name: accepted[f.name] || f.name,
+            calls: (f.calls || []).map((c: string) => accepted[c] || c)
         }));
 
         setProjectData({

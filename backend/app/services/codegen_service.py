@@ -5,10 +5,84 @@ from datetime import datetime
 
 class CodeGenerator:
     @staticmethod
-    def generate_python_flask(service_name, functions, all_funcs, renames_map):
+    def _extract_imports(code_body):
+        """Extract import statements from original code body"""
+        imports = set()
+        if not code_body:
+            return imports
+        for line in code_body.split('\n'):
+            stripped = line.strip()
+            if stripped.startswith('import ') or stripped.startswith('from '):
+                imports.add(stripped)
+        return imports
+
+    @staticmethod
+    def _extract_file_imports(source_code):
+        """Extract top-level import statements from the original source file"""
+        imports = set()
+        if not source_code:
+            return imports
+        for line in source_code.split('\n'):
+            stripped = line.strip()
+            # Only grab top-level imports (not indented ones inside functions)
+            if (line.startswith('import ') or line.startswith('from ')) and not line.startswith(' '):
+                imports.add(stripped)
+        return imports
+
+    @staticmethod
+    def _collect_service_imports(functions, all_funcs, source_code=''):
+        """Collect all imports needed by the functions in this service from the full source"""
+        # Extract from the top-level source code (much more reliable than scanning bodies)
+        imports = set()
+        if source_code:
+            imports = CodeGenerator._extract_file_imports(source_code)
+        # Remove flask/requests imports since we add those ourselves
+        imports = {imp for imp in imports
+                   if not imp.startswith('from flask')
+                   and 'flask_cors' not in imp
+                   and imp != 'import requests'}
+        return sorted(imports)
+
+    @staticmethod
+    def generate_python_flask(service_name, functions, all_funcs, renames_map, all_services=None, source_code=''):
+        # Collect imports from the original source file
+        extra_imports = CodeGenerator._collect_service_imports(functions, all_funcs, source_code)
+        import_block = '\n'.join(extra_imports)
+        if import_block:
+            import_block = '\n' + import_block + '\n'
+
+        # Build cross-service lookup: function_name -> (service_folder, port)
+        cross_service_map = {}
+        if all_services:
+            port = 5001
+            for svc_name, svc_funcs in all_services.items():
+                s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', svc_name)
+                svc_host = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+                if not svc_host.endswith('_service'):
+                    svc_host += '_service'
+                for fn in svc_funcs:
+                    if fn not in functions:  # Only external functions
+                        cross_service_map[fn] = (svc_host, port)
+                port += 1
+
+        # Build parameter names map for ALL functions to use as JSON keys
+        param_names_map = {}
+        for f in all_funcs:
+            f_name = f['name']
+            f_body = f.get('body', '')
+            if f_body:
+                # Extract original params from def line
+                match = re.search(r'def\s+\w+\((.*?)\)', f_body)
+                if match:
+                    p_str = match.group(1).strip()
+                    # Filter out 'self' and split by comma
+                    p_list = [p.strip().split('=')[0].strip() for p in p_str.split(',') if p.strip() and p.strip() != 'self']
+                    param_names_map[f_name] = p_list
+
         code = f"""from flask import Flask, jsonify, request
 from flask_cors import CORS
-
+import requests
+{import_block}
 app = Flask(__name__)
 CORS(app)
 
@@ -66,6 +140,51 @@ class {service_name}:
                         replacement = f'self.{service_func}('
                         modified_line = re.sub(pattern, replacement, modified_line)
                     
+                    # Replace cross-service calls with HTTP requests
+                    if cross_service_map:
+                        for ext_func, (svc_host, svc_port) in cross_service_map.items():
+                            # Match: ext_func(args) capturing the args group
+                            pattern = r'(?<!self\.)(?<!\.)(?<!def\s)\b' + re.escape(ext_func) + r'\(([^)]*)\)'
+                            # Use a callback so we can properly use the captured args group
+                            def make_http_replacer(host, port, fname):
+                                def replacer(m):
+                                    args_str = m.group(1).strip()
+                                    if args_str:
+                                        # Split args by comma, ignoring commas inside parentheses/brackets
+                                        # (Simple regex splitting for balanced parens)
+                                        arg_parts = []
+                                        depth = 0
+                                        current = ""
+                                        for char in args_str:
+                                            if char == ',' and depth == 0:
+                                                arg_parts.append(current.strip())
+                                                current = ""
+                                            else:
+                                                if char in '([{': depth += 1
+                                                if char in ')]}': depth -= 1
+                                                current += char
+                                        if current:
+                                            arg_parts.append(current.strip())
+                                        
+                                        # Get original parameter names for the target function
+                                        target_params = param_names_map.get(fname, [])
+                                        
+                                        pairs = []
+                                        for i, val in enumerate(arg_parts):
+                                            # Use param name if we have it, else fallback to argN
+                                            if i < len(target_params):
+                                                key = target_params[i]
+                                            else:
+                                                key = f"arg{i+1}"
+                                            pairs.append(f'"{key}": {val}')
+                                        
+                                        json_payload = '{' + ', '.join(pairs) + '}'
+                                    else:
+                                        json_payload = '{}'
+                                    return f'requests.post("http://{host}:{port}/{fname}", json={json_payload}).json().get("result")'
+                                return replacer
+                            modified_line = re.sub(pattern, make_http_replacer(svc_host, svc_port, ext_func), modified_line)
+                    
                     indented_body += "        " + modified_line + "\n"
             else:
                 indented_body = f"        # TODO: Implement business logic for {func_name}\n        return \"{func_name} executed\""
@@ -95,9 +214,8 @@ def api_{func}():
         else:
              result = service.{func}(data)
         return jsonify({{"result": result}})
-    except TypeError:
-        # Fallback if args don't match
-        return jsonify({{"result": service.{func}()}})
+    except TypeError as te:
+        return jsonify({{"error": f"Invalid arguments: {{str(te)}}"}}), 400
     except Exception as e:
         return jsonify({{"error": str(e)}}), 500
 
@@ -158,7 +276,7 @@ app.listen(PORT, () => {
 
 class CodegenService:
     @staticmethod
-    def generate_code_package(services, language, functions_data, renames_map, source_filename):
+    def generate_code_package(services, language, functions_data, renames_map, source_filename, source_code=''):
         zip_buffer = io.BytesIO()
         
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
@@ -180,16 +298,16 @@ class CodegenService:
                 
                 # Language specific generation
                 if language == 'python':
-                    # Main App
-                    code = CodeGenerator.generate_python_flask(svc_name, funcs, functions_data, renames_map)
+                    # Main App — pass source_code for top-level import extraction
+                    code = CodeGenerator.generate_python_flask(svc_name, funcs, functions_data, renames_map, all_services=services, source_code=source_code)
                     zipf.writestr(f"{folder}/app.py", code)
                     
                     # Dockerfile
-                    docker = "FROM python:3.9-slim\nWORKDIR /app\nCOPY . .\nRUN pip install flask flask-cors\nCMD [\"python\", \"app.py\"]"
+                    docker = "FROM python:3.9-slim\nWORKDIR /app\nCOPY . .\nRUN pip install flask flask-cors requests\nCMD [\"python\", \"app.py\"]"
                     zipf.writestr(f"{folder}/Dockerfile", docker)
                     
                     # Requirements
-                    zipf.writestr(f"{folder}/requirements.txt", "flask\nflask-cors")
+                    zipf.writestr(f"{folder}/requirements.txt", "flask\nflask-cors\nrequests")
                     
                 elif language in ['javascript', 'typescript']:
                     # Main App

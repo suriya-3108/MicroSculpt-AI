@@ -1,22 +1,22 @@
 version: '3.8'
 services:
-  inventory_service:
-    build: ./inventory_service
+  account_creation_service:
+    build: ./account_creation_service
     ports:
       - "5001:5000"
-  login_service:
-    build: ./login_service
+  account_management_service:
+    build: ./account_management_service
     ports:
       - "5002:5000"
-  order_service:
-    build: ./order_service
+  payment_processing_service:
+    build: ./payment_processing_service
     ports:
       - "5003:5000"
-  product_service:
-    build: ./product_service
+  transaction_data_service:
+    build: ./transaction_data_service
     ports:
       - "5004:5000"
-  session_service:
-    build: ./session_service
+  user_data_service:
+    build: ./user_data_service
     ports:
       - "5005:5000"

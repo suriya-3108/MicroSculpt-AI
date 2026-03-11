@@ -36,6 +36,8 @@ class AIService:
     def analyze_bugs(code, language):
         prompt = f'''
         Analyze this {language} code for bugs, syntax errors, and logical issues.
+        Do NOT prefix issues with "Undefined function" for functions that ARE defined in the code.
+        Focus on actual bugs: missing error handling, hardcoded values, logic errors, type issues, security concerns.
         Return ONLY a valid JSON object.
         
         CRITICAL rules for JSON:
